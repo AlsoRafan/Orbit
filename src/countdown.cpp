@@ -9,8 +9,12 @@ class Timer {
 protected:
     int time_sec;
 public:
+    class invalid_choice_err  {};
+    class invalid_time_err    {};
+    class non_numeric_err     {};
+
     Timer(int t = 0) : time_sec(t) {}
-    void  set_time();
+    void set_time();
     virtual void start() = 0;
     virtual ~Timer() = default;
 };
@@ -24,22 +28,36 @@ public:
 
 void Timer::set_time() {
     int choice, t;
+
     cout << "\nChoose time unit:\n"
          << "  1. Seconds\n"
          << "  2. Minutes\n"
          << "  3. Hours\n"
          << "Enter choice: ";
-    cin >> choice;
+
+    if (!(cin >> choice)) {
+        cin.clear();
+        cin.ignore(1000, '\n');
+        throw non_numeric_err{};
+    }
+
+    if (choice < 1 || choice > 3)
+        throw invalid_choice_err{};
+
     cout << "Enter time: ";
-    cin >> t;
+
+    if (!(cin >> t)) {
+        cin.clear();
+        cin.ignore(1000, '\n');
+        throw non_numeric_err{};
+    }
+
+    if (t <= 0) throw invalid_time_err{};
 
     switch (choice) {
         case 1: time_sec = t;        break;
         case 2: time_sec = t * 60;   break;
         case 3: time_sec = t * 3600; break;
-        default:
-            cout << "Invalid choice.\n";
-            time_sec = 0;
     }
 }
 
@@ -64,7 +82,23 @@ void CountDown::start() {
 
 int countdown() {
     CountDown c;
-    c.set_time();
+
+    while (true) {
+        try {
+            c.set_time();
+            break;
+
+        } catch (Timer::non_numeric_err) {
+            cout << "[Error] Please enter numbers only. Try again.\n";
+
+        } catch (Timer::invalid_choice_err) {
+            cout << "[Error] Choice must be 1, 2, or 3. Try again.\n";
+
+        } catch (Timer::invalid_time_err) {
+            cout << "[Error] Time must be greater than 0. Try again.\n";
+        }
+    }
+
     c.start();
     return 0;
 }
