@@ -10,6 +10,7 @@
 #include <chrono>
 #include <climits>
 using namespace std;
+
 struct alarm_info {
     string time;
     string type;
@@ -21,9 +22,11 @@ vector<alarm_info> all_alarms;
 
 class file_save {
 public:
+    class file_open_err {};
+
     virtual void save_data(string alarm_data) {
         ofstream file("data/alarm.txt", ios::app);
-        if (!file.is_open()) { cout << "error opening the file" << endl; return; }
+        if (!file.is_open()) throw file_open_err{};
         file << alarm_data << endl;
         file.close();
     }
@@ -31,9 +34,11 @@ public:
 
 class data_fetch_from_file {
 public:
+    class file_read_err {};
+
     void fetch_data_from_file() {
         ifstream file("data/alarm.txt");
-        if (!file.is_open()) { cout << "error reading the file" << endl; return; }
+        if (!file.is_open()) throw file_read_err{};
         string line;
         while (getline(file, line)) cout << line << endl;
     }
@@ -45,7 +50,8 @@ private:
 protected:
     string hours, mins, type;
 public:
-    class no_known_formate_found_err {};
+    class no_known_format_found_err {};
+    class invalid_time_value_err    {};
 
     void string_convert_to_lowercase(string alarm_input) {
         transform(alarm_input.begin(), alarm_input.end(), alarm_input.begin(), ::tolower);
@@ -59,20 +65,33 @@ public:
     }
 
     void input_type_find() {
-        if (lower_case_string.find(":") == string::npos) throw no_known_formate_found_err{};
+        if (lower_case_string.find(":") == string::npos)
+            throw no_known_format_found_err{};
+
         size_t colon_index = lower_case_string.find(":");
+        string raw_h = lower_case_string.substr(0, colon_index);
+        string raw_m = lower_case_string.substr(colon_index + 1, 2);
+
+        for (char c : raw_h) if (!isdigit((unsigned char)c)) throw no_known_format_found_err{};
+        for (char c : raw_m) if (!isdigit((unsigned char)c)) throw no_known_format_found_err{};
+
+        int h = stoi(raw_h);
+        int m = stoi(raw_m);
+
+        if (h < 0 || h > 23) throw invalid_time_value_err{};
+        if (m < 0 || m > 59) throw invalid_time_value_err{};
+
         if (lower_case_string.find("am") != string::npos)
             final_time(colon_index, lower_case_string.find("am"));
         else if (lower_case_string.find("pm") != string::npos)
             final_time(colon_index, lower_case_string.find("pm"));
         else {
-            hours = lower_case_string.substr(0, colon_index);
-            mins  = lower_case_string.substr(colon_index + 1, 2);
+            hours = raw_h;
+            mins  = raw_m;
             type  = "stand";
         }
     }
 };
-
 class alarm_data : public time_input, virtual public file_save {
 protected:
     int second, minute, hour, day, month, year;
@@ -80,6 +99,9 @@ protected:
     string alarm_time;
 
 public:
+    class invalid_day_err   {};
+    class invalid_month_err {};
+
     void get_curr_time() {
         time_t time_now = time(0);
         tm* t = localtime(&time_now);
@@ -94,8 +116,24 @@ public:
     void get_alarm_info_from_user() {
         cout << "Enter time (e.g. 4:35 am  or  4:35 pm): ";
         getline(cin, alarm_time);
-        cout << "Day: ";   cin >> alarm_ring_day;
-        cout << "Month: "; cin >> alarm_ring_month;
+        string_convert_to_lowercase(alarm_time);
+        input_type_find();
+
+        cout << "Day: ";
+        if (!(cin >> alarm_ring_day)) {
+            cin.clear();
+            cin.ignore(1000, '\n');
+            throw invalid_day_err{};
+        }
+        if (alarm_ring_day < 1 || alarm_ring_day > 31) throw invalid_day_err{};
+
+        cout << "Month: ";
+        if (!(cin >> alarm_ring_month)) {
+            cin.clear();
+            cin.ignore(1000, '\n');
+            throw invalid_month_err{};
+        }
+        if (alarm_ring_month < 1 || alarm_ring_month > 12) throw invalid_month_err{};
     }
 
     void save_data_into_file() {
@@ -109,6 +147,7 @@ public:
         for (char c : line) if (!isspace((unsigned char)c)) return true;
         return false;
     }
+
     alarm_info get_alarm_data_from_file(const string& line) {
         alarm_info alarm;
         istringstream ss(line);
@@ -127,8 +166,8 @@ public:
         if (token == "=") ss >> alarm.day;
         else alarm.day = stoi(token);
 
-        ss >> token; 
-        ss >> token; 
+        ss >> token;
+        ss >> token;
         if (token == "=") ss >> alarm.month;
         else alarm.month = stoi(token);
 
@@ -204,15 +243,17 @@ public:
         if (alarm.day != day || alarm.month != month) return false;
         return (hour == to_abs_hour(alarm) && minute == to_abs_min(alarm));
     }
+
     void show_ringing_screen(alarm_info& alarm) {
-        system("clear");
+        system("cls");
         cout << "ALARM RINGING" << endl;
-        cout << "Time:- "<< alarm.time;
+        cout << "Time:- " << alarm.time;
         if (alarm.type == "am" || alarm.type == "pm") cout << " " << alarm.type;
         cout << endl;
         cout << "Date:- " << alarm.day << "/" << alarm.month << endl;
         cout << "\n  Press ENTER to dismiss..." << endl;
     }
+
     void ring_alarm(alarm_info& alarm) {
         show_ringing_screen(alarm);
         bool stop = false;
@@ -227,14 +268,16 @@ public:
         stop = true;
         beep_thread.join();
         alarm.is_true = true;
-        system("clear");
+        system("cls");
         cout << "Alarm dismissed!\n";
     }
+
     bool any_pending() {
         for (auto& alarm : all_alarms)
             if (!alarm.is_true) return true;
         return false;
     }
+
     alarm_info* find_next_alarm() {
         alarm_info* next = nullptr;
         int next_total = INT_MAX;
@@ -259,10 +302,10 @@ public:
         if (all_alarms.empty()) { cout << "No alarms set.\n"; return; }
         while (any_pending()) {
             get_curr_time();
-            system("clear");
-            cout << "Time : " << (hour<10?"0":"") << hour << ":"
-                 << (minute<10?"0":"") << minute << ":"
-                 << (second<10?"0":"") << second << "\n";
+            system("cls");
+            cout << "Time : " << (hour   < 10 ? "0" : "") << hour   << ":"
+                              << (minute < 10 ? "0" : "") << minute << ":"
+                              << (second < 10 ? "0" : "") << second << "\n";
             cout << "Date : " << day << "/" << month << "/" << year << "\n";
 
             alarm_info* next = find_next_alarm();
@@ -274,7 +317,7 @@ public:
                 cout << "\nNo upcoming alarms.\n";
             }
 
-            cout << "\nAlarms:-";
+            cout << "\nAlarms:-\n";
             for (auto& alarm : all_alarms) {
                 cout << alarm.time;
                 if (alarm.type == "am" || alarm.type == "pm") cout << " " << alarm.type;
@@ -288,32 +331,71 @@ public:
             this_thread::sleep_for(chrono::seconds(1));
         }
 
-        system("clear");
+        system("cls");
         cout << "  NO ALARM!\n";
-       
     }
 };
-
 void Alarm() {
     int choice;
-    cout << "1. Add Alarm\n2. Alarms\n > ";
-    cin >> choice;
-    cin.ignore();
+    while (true) {
+        cout << "1. Add Alarm\n2. Alarms\n > ";
+        if (cin >> choice && (choice == 1 || choice == 2)) {
+            cin.ignore();
+            break;
+        }
+        cin.clear();
+        cin.ignore(1000, '\n');
+        cout << "[Error] Invalid choice. Enter 1 or 2.\n\n";
+    }
 
     alarm_ring* a_r = new alarm_ring;
 
     if (choice == 1) {
-        a_r->get_alarm_info_from_user();
-        a_r->save_data_into_file();
-        delete a_r; return;
+        while (true) {
+            try {
+                a_r->get_alarm_info_from_user();
+                cin.ignore();                   
+                a_r->save_data_into_file();
+                cout << "Alarm saved!\n";
+                break;                            
+
+            } catch (alarm_data::invalid_day_err) {
+                cin.ignore(1000, '\n');
+                cout << "[Error] Day must be a number between 1 and 31. Try again.\n\n";
+
+            } catch (alarm_data::invalid_month_err) {
+                cin.ignore(1000, '\n');
+                cout << "[Error] Month must be a number between 1 and 12. Try again.\n\n";
+
+            } catch (time_input::no_known_format_found_err) {
+                cin.ignore(1000, '\n');
+                cout << "[Error] Time format not recognised. Use  HH:MM am / HH:MM pm / HH:MM (24h). Try again.\n\n";
+
+            } catch (time_input::invalid_time_value_err) {
+                cin.ignore(1000, '\n');
+                cout << "[Error] Hour must be 0-23 and minute 0-59. Try again.\n\n";
+
+            } catch (file_save::file_open_err) {
+                cout << "[Error] Could not open alarm file for saving. Check that data/ folder exists.\n";
+                break;                          
+            }
+        }
+
+        delete a_r;
+        return;
     }
+
 
     a_r->delete_past_alarms_from_file();
     a_r->read_alarms_from_file();
 
     cout << "\nLoaded alarms:\n";
-    data_fetch_from_file d_f;
-    d_f.fetch_data_from_file();
+    try {
+        data_fetch_from_file d_f;
+        d_f.fetch_data_from_file();
+    } catch (data_fetch_from_file::file_read_err) {
+        cout << "[Error] Could not read alarm file.\n";
+    }
 
     a_r->start_checking();
     delete a_r;
